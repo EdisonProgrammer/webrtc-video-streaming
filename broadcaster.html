@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Broadcaster</title>
+</head>
+<body>
+  <video id="localVideo" autoplay playsinline></video>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const video = document.getElementById('localVideo');
+    let peer = new RTCPeerConnection();
+
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+        stream.getTracks().forEach(track => peer.addTrack(track, stream));
+      })
+      .catch(error => console.error('Error accessing media devices.', error));
+
+    peer.onicecandidate = e => {
+      if (e.candidate) socket.emit('candidate', e.candidate);
+    };
+
+    peer.createOffer().then(offer => {
+      peer.setLocalDescription(offer);
+      socket.emit('offer', offer);
+    });
+
+    socket.on('answer', answer => {
+      peer.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    socket.on('candidate', candidate => {
+      peer.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+  </script>
+</body>
+</html>
