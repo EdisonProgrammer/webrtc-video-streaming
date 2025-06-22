@@ -12,21 +12,41 @@
     let peer = new RTCPeerConnection();
 
     peer.ontrack = e => {
+      console.log('Track received');
       video.srcObject = e.streams[0];
     };
+
     peer.onicecandidate = e => {
-      if (e.candidate) socket.emit('candidate', e.candidate);
+      if (e.candidate) {
+        console.log('Sending candidate', e.candidate);
+        socket.emit('candidate', e.candidate);
+      }
     };
 
     socket.on('offer', offer => {
-      peer.setRemoteDescription(new RTCSessionDescription(offer));
-      peer.createAnswer().then(answer => {
-        peer.setLocalDescription(answer);
-        socket.emit('answer', answer);
+      console.log('Offer received', offer);
+      peer.setRemoteDescription(new RTCSessionDescription(offer)).then(() => {
+        return peer.createAnswer();
+      }).then(answer => {
+        return peer.setLocalDescription(answer);
+      }).then(() => {
+        console.log('Sending answer', peer.localDescription);
+        socket.emit('answer', peer.localDescription);
+      }).catch(err => {
+        console.error('Error handling offer:', err);
       });
     });
+
     socket.on('candidate', candidate => {
-      peer.addIceCandidate(new RTCIceCandidate(candidate));
+      console.log('Candidate received', candidate);
+      peer.addIceCandidate(new RTCIceCandidate(candidate)).catch(err => {
+        console.error('Error adding candidate:', err);
+      });
+    });
+
+    // Додатково: логування підключення
+    socket.on('connect', () => {
+      console.log('Connected to signaling server');
     });
   </script>
 </body>
