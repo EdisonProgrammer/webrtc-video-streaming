@@ -1,50 +1,111 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>Camera</title>
+  <title>Камера</title>
+  <style>
+    video { width: 100%; max-width: 600px; }
+    select, button {
+      font-size: 1em;
+      margin: 10px 5px;
+      padding: 8px;
+    }
+  </style>
 </head>
 <body>
-  <h1>📷 Camera</h1>
+  <h2>📷 Камера</h2>
   <video id="localVideo" autoplay playsinline muted></video>
+  <br>
+  <label for="cameraSelect">🎥 Обрати камеру:</label>
+  <select id="cameraSelect"></select>
+  <button id="refreshBtn">🔄 Оновити список</button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     const room = 'webrtc-room';
     const video = document.getElementById('localVideo');
-    let peerConnection;
+    const cameraSelect = document.getElementById('cameraSelect');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    let currentStream;
+    let pc;
+
     const config = {
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     };
 
     socket.emit('join', room);
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false }).then(stream => {
+    async function getCameras() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      cameraSelect.innerHTML = '';
+      videoDevices.forEach(device => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Камера ${cameraSelect.length + 1}`;
+        cameraSelect.appendChild(option);
+      });
+    }
+
+    async function startCameraById(deviceId) {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          deviceId: { exact: deviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false
+      });
+
+      currentStream = stream;
       video.srcObject = stream;
 
-      peerConnection = new RTCPeerConnection(config);
+      if (!pc) {
+        pc = new RTCPeerConnection(config);
+        pc.onicecandidate = e => {
+          if (e.candidate) socket.emit('candidate', room, e.candidate);
+        };
 
-      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-      peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-          socket.emit('candidate', room, event.candidate);
-        }
-      };
-
-      peerConnection.createOffer().then(offer => {
-        peerConnection.setLocalDescription(offer);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
         socket.emit('offer', room, offer);
-      });
+      } else {
+        const sender = pc.getSenders().find(s => s.track.kind === 'video');
+        if (sender) {
+          sender.replaceTrack(stream.getVideoTracks()[0]);
+        }
+      }
+    }
+
+    cameraSelect.addEventListener('change', () => {
+      const selectedId = cameraSelect.value;
+      startCameraById(selectedId);
     });
 
+    refreshBtn.addEventListener('click', getCameras);
+
     socket.on('answer', answer => {
-      peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+      pc.setRemoteDescription(answer);
     });
 
     socket.on('candidate', candidate => {
-      peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      pc.addIceCandidate(candidate);
+    });
+
+    // Старт
+    getCameras().then(() => {
+      const firstId = cameraSelect.options[0]?.value;
+      if (firstId) {
+        startCameraById(firstId);
+      }
     });
   </script>
 </body>
