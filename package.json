@@ -1,15 +1,12 @@
 {
   "name": "webrtc-video-streaming",
   "version": "1.0.0",
-  "description": "A project for streaming video between smartphones using WebRTC and Socket.IO.",
-  "main": "src/server.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.17.1",
-    "socket.io": "^4.0.0"
-  },
-  "author": "",
-  "license": "ISC"
+    "express": "^4.18.2",
+    "socket.io": "^4.7.5"
+  }
 }
