@@ -2,9 +2,9 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>Камера</title>
+  <title>Камера з перемиканням</title>
   <style>
-    video { width: 100%; max-width: 600px; }
+    video { width: 100%; max-width: 600px; background: black; }
     select, button {
       font-size: 1em;
       margin: 10px 5px;
@@ -13,7 +13,7 @@
   </style>
 </head>
 <body>
-  <h2>📷 Камера</h2>
+  <h2>📷 Камера з вибором</h2>
   <video id="localVideo" autoplay playsinline muted></video>
   <br>
   <label for="cameraSelect">🎥 Обрати камеру:</label>
@@ -28,8 +28,8 @@
     const cameraSelect = document.getElementById('cameraSelect');
     const refreshBtn = document.getElementById('refreshBtn');
 
-    let currentStream;
-    let pc;
+    let currentStream = null;
+    let pc = null;
 
     const config = {
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -50,15 +50,17 @@
     }
 
     async function startCameraById(deviceId) {
+      // Зупиняємо попередній стрім
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
 
+      // Запускаємо новий стрім
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           deviceId: { exact: deviceId },
           width: { ideal: 1280 },
-          height: { ideal: 720 },
+          height: { ideal: 720 }
         },
         audio: false
       });
@@ -66,45 +68,52 @@
       currentStream = stream;
       video.srcObject = stream;
 
-      if (!pc) {
-        pc = new RTCPeerConnection(config);
-        pc.onicecandidate = e => {
-          if (e.candidate) socket.emit('candidate', room, e.candidate);
-        };
-
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', room, offer);
-      } else {
-        const sender = pc.getSenders().find(s => s.track.kind === 'video');
-        if (sender) {
-          sender.replaceTrack(stream.getVideoTracks()[0]);
-        }
+      // Якщо був peerConnection - закриваємо
+      if (pc) {
+        pc.close();
       }
+
+      // Створюємо новий RTCPeerConnection
+      pc = new RTCPeerConnection(config);
+
+      // Додаємо треки до peerConnection
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.onicecandidate = e => {
+        if (e.candidate) socket.emit('candidate', room, e.candidate);
+      };
+
+      // Чекаємо поки відео почне відтворюватися, перед створенням offer
+      await new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          resolve();
+        };
+      });
+
+      // Створюємо offer і відправляємо на сервер
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('offer', room, offer);
     }
 
     cameraSelect.addEventListener('change', () => {
-      const selectedId = cameraSelect.value;
-      startCameraById(selectedId);
+      startCameraById(cameraSelect.value);
     });
 
     refreshBtn.addEventListener('click', getCameras);
 
     socket.on('answer', answer => {
-      pc.setRemoteDescription(answer);
+      if (pc) pc.setRemoteDescription(answer);
     });
 
     socket.on('candidate', candidate => {
-      pc.addIceCandidate(candidate);
+      if (pc) pc.addIceCandidate(candidate);
     });
 
-    // Старт
+    // Стартуємо: отримуємо список камер і запускаємо першу
     getCameras().then(() => {
-      const firstId = cameraSelect.options[0]?.value;
-      if (firstId) {
-        startCameraById(firstId);
+      if (cameraSelect.options.length > 0) {
+        startCameraById(cameraSelect.options[0].value);
       }
     });
   </script>
