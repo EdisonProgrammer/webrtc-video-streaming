@@ -1,79 +1,49 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
   <title>Viewer</title>
-  <style>
-    body {
-      margin: 0;
-      background: #111;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-    }
-    video {
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      object-fit: contain;
-      max-width: 100%;
-      max-height: 100%;
-      border-radius: 8px;
-      box-shadow: 0 0 24px #000a;
-    }
-  </style>
 </head>
 <body>
-  <video id="remoteVideo" autoplay playsinline></video>
-  <script src="socket.io/socket.io.js"></script>
+  <h1>👀 Viewer</h1>
+  <video id="remoteVideo" autoplay playsinline controls></video>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+    const room = 'webrtc-room';
     const video = document.getElementById('remoteVideo');
-    let peer = null;
-    let broadcasterId = null;
+    let peerConnection;
+    const config = {
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    };
 
-    // Автоматично підключаємося до першого broadcaster
-    socket.on('broadcaster', () => {
-      socket.emit('viewer');
+    socket.emit('join', room);
+
+    socket.on('new-peer', () => {
+      peerConnection = new RTCPeerConnection(config);
+
+      peerConnection.ontrack = event => {
+        video.srcObject = event.streams[0];
+      };
+
+      peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+          socket.emit('candidate', room, event.candidate);
+        }
+      };
     });
 
-    socket.on('offer', ({ broadcasterId: bId, offer }) => {
-      broadcasterId = bId;
-      peer = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-      });
-
-      peer.ontrack = e => {
-        console.log('Track received');
-        video.srcObject = e.streams[0];
-      };
-
-      peer.onicecandidate = e => {
-        if (e.candidate) {
-          socket.emit('candidate', { to: broadcasterId, candidate: e.candidate });
-        }
-      };
-
-      peer.setRemoteDescription(new RTCSessionDescription(offer)).then(() => {
-        return peer.createAnswer();
-      }).then(answer => {
-        return peer.setLocalDescription(answer);
-      }).then(() => {
-        socket.emit('answer', { broadcasterId, answer: peer.localDescription });
-      });
-
-      // ICE candidate from broadcaster
-      socket.on('candidate', ({ from, candidate }) => {
-        if (from === broadcasterId) {
-          peer.addIceCandidate(new RTCIceCandidate(candidate));
-        }
+    socket.on('offer', offer => {
+      peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      peerConnection.createAnswer().then(answer => {
+        peerConnection.setLocalDescription(answer);
+        socket.emit('answer', room, answer);
       });
     });
 
-    socket.on('broadcaster-disconnected', () => {
-      if (peer) peer.close();
-      video.srcObject = null;
-      alert('Broadcaster disconnected');
+    socket.on('candidate', candidate => {
+      peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     });
   </script>
 </body>
