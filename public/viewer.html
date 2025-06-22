@@ -11,10 +11,9 @@
     const video = document.getElementById('remoteVideo');
     let peer = null;
 
-    // Запитати у користувача ID broadcaster (можна зробити автоматично, якщо один broadcaster)
+    // Автоматично підключаємося до першого broadcaster
     socket.on('broadcaster', () => {
-      // Якщо кілька broadcaster, тут можна вибрати потрібного
-      socket.emit('viewer', prompt('Введіть ID broadcaster (або залиште порожнім для першого):') || Object.keys(socket.io.engine.clients)[0]);
+      socket.emit('viewer');
     });
 
     socket.on('offer', ({ broadcasterId, offer }) => {
@@ -23,10 +22,9 @@
       });
 
       peer.ontrack = e => {
-          console.log('Track received');
+        console.log('Track received');
         video.srcObject = e.streams[0];
       };
-
 
       peer.onicecandidate = e => {
         if (e.candidate) {
