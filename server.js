@@ -1,4 +1,3 @@
-// filepath: webrtc-video-streaming/server.js
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -9,10 +8,55 @@ const io = socketIo(server);
 
 app.use(express.static('public'));
 
+let broadcasters = {}; // { broadcasterSocketId: Set(viewerSocketId) }
+let viewers = {};      // { viewerSocketId: broadcasterSocketId }
+
 io.on('connection', socket => {
-  socket.on('offer', (offer) => socket.broadcast.emit('offer', offer));
-  socket.on('answer', (answer) => socket.broadcast.emit('answer', answer));
-  socket.on('candidate', (candidate) => socket.broadcast.emit('candidate', candidate));
+  socket.on('broadcaster', () => {
+    broadcasters[socket.id] = new Set();
+    socket.broadcast.emit('broadcaster');
+    console.log('Broadcaster connected:', socket.id);
+  });
+
+  socket.on('viewer', broadcasterId => {
+    viewers[socket.id] = broadcasterId;
+    if (broadcasters[broadcasterId]) {
+      broadcasters[broadcasterId].add(socket.id);
+      io.to(broadcasterId).emit('viewer', socket.id);
+    }
+    console.log('Viewer connected:', socket.id, 'to broadcaster:', broadcasterId);
+  });
+
+  socket.on('offer', ({ viewerId, offer }) => {
+    io.to(viewerId).emit('offer', { broadcasterId: socket.id, offer });
+  });
+
+  socket.on('answer', ({ broadcasterId, answer }) => {
+    io.to(broadcasterId).emit('answer', { viewerId: socket.id, answer });
+  });
+
+  socket.on('candidate', ({ to, candidate }) => {
+    io.to(to).emit('candidate', { from: socket.id, candidate });
+  });
+
+  socket.on('disconnect', () => {
+    if (broadcasters[socket.id]) {
+      // Broadcaster disconnected
+      broadcasters[socket.id].forEach(viewerId => {
+        io.to(viewerId).emit('broadcaster-disconnected');
+        delete viewers[viewerId];
+      });
+      delete broadcasters[socket.id];
+    }
+    if (viewers[socket.id]) {
+      // Viewer disconnected
+      const broadcasterId = viewers[socket.id];
+      if (broadcasters[broadcasterId]) {
+        broadcasters[broadcasterId].delete(socket.id);
+      }
+      delete viewers[socket.id];
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3000;

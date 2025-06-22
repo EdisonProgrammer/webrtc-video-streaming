@@ -4,44 +4,61 @@
   <title>Broadcaster</title>
 </head>
 <body>
-  <video id="localVideo" autoplay playsinline></video>
+  <video id="localVideo" autoplay playsinline muted></video>
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     const video = document.getElementById('localVideo');
-    let peer = new RTCPeerConnection();
+    let localStream = null;
+    const peers = {}; // viewerId -> RTCPeerConnection
 
-    navigator.mediaDevices.getUserMedia({ video: true })
+    socket.emit('broadcaster');
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
       .then(stream => {
+        localStream = stream;
         video.srcObject = stream;
-        stream.getTracks().forEach(track => peer.addTrack(track, stream));
       })
       .catch(error => console.error('Error accessing media devices.', error));
 
-    peer.onicecandidate = e => {
-      if (e.candidate) {
-        console.log('Sending candidate', e.candidate);
-        socket.emit('candidate', e.candidate);
-      }
-    };
+    socket.on('viewer', viewerId => {
+      const peer = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
+      peers[viewerId] = peer;
 
-    socket.on('answer', answer => {
-      console.log('Answer received', answer);
-      peer.setRemoteDescription(new RTCSessionDescription(answer));
+      localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+
+      peer.onicecandidate = e => {
+        if (e.candidate) {
+          socket.emit('candidate', { to: viewerId, candidate: e.candidate });
+        }
+      };
+
+      peer.createOffer().then(offer => {
+        return peer.setLocalDescription(offer);
+      }).then(() => {
+        socket.emit('offer', { viewerId, offer: peer.localDescription });
+      });
+
+      // Answer from viewer
+      socket.on('answer', ({ viewerId: from, answer }) => {
+        if (from === viewerId) {
+          peer.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+      });
+
+      // ICE candidate from viewer
+      socket.on('candidate', ({ from, candidate }) => {
+        if (from === viewerId) {
+          peer.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      });
     });
 
-    socket.on('candidate', candidate => {
-      console.log('Candidate received', candidate);
-      peer.addIceCandidate(new RTCIceCandidate(candidate));
-    });
-
-    peer.createOffer().then(offer => {
-      return peer.setLocalDescription(offer);
-    }).then(() => {
-      console.log('Sending offer', peer.localDescription);
-      socket.emit('offer', peer.localDescription);
-    }).catch(err => {
-      console.error('Error creating offer:', err);
+    socket.on('broadcaster-disconnected', () => {
+      Object.values(peers).forEach(peer => peer.close());
+      location.reload();
     });
   </script>
 </body>

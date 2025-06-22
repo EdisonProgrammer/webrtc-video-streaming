@@ -9,44 +9,49 @@
   <script>
     const socket = io();
     const video = document.getElementById('remoteVideo');
-    let peer = new RTCPeerConnection();
+    let peer = null;
 
-    peer.ontrack = e => {
-      console.log('Track received');
-      video.srcObject = e.streams[0];
-    };
+    // Запитати у користувача ID broadcaster (можна зробити автоматично, якщо один broadcaster)
+    socket.on('broadcaster', () => {
+      // Якщо кілька broadcaster, тут можна вибрати потрібного
+      socket.emit('viewer', prompt('Введіть ID broadcaster (або залиште порожнім для першого):') || Object.keys(socket.io.engine.clients)[0]);
+    });
 
-    peer.onicecandidate = e => {
-      if (e.candidate) {
-        console.log('Sending candidate', e.candidate);
-        socket.emit('candidate', e.candidate);
-      }
-    };
+    socket.on('offer', ({ broadcasterId, offer }) => {
+      peer = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
 
-    socket.on('offer', offer => {
-      console.log('Offer received', offer);
+      peer.ontrack = e => {
+        video.srcObject = e.streams[0];
+      };
+
+      peer.onicecandidate = e => {
+        if (e.candidate) {
+          socket.emit('candidate', { to: broadcasterId, candidate: e.candidate });
+        }
+      };
+
       peer.setRemoteDescription(new RTCSessionDescription(offer)).then(() => {
         return peer.createAnswer();
       }).then(answer => {
         return peer.setLocalDescription(answer);
       }).then(() => {
-        console.log('Sending answer', peer.localDescription);
-        socket.emit('answer', peer.localDescription);
-      }).catch(err => {
-        console.error('Error handling offer:', err);
+        socket.emit('answer', { broadcasterId, answer: peer.localDescription });
+      });
+
+      // ICE candidate from broadcaster
+      socket.on('candidate', ({ from, candidate }) => {
+        if (from === broadcasterId) {
+          peer.addIceCandidate(new RTCIceCandidate(candidate));
+        }
       });
     });
 
-    socket.on('candidate', candidate => {
-      console.log('Candidate received', candidate);
-      peer.addIceCandidate(new RTCIceCandidate(candidate)).catch(err => {
-        console.error('Error adding candidate:', err);
-      });
-    });
-
-    // Додатково: логування підключення
-    socket.on('connect', () => {
-      console.log('Connected to signaling server');
+    socket.on('broadcaster-disconnected', () => {
+      if (peer) peer.close();
+      video.srcObject = null;
+      alert('Broadcaster disconnected');
     });
   </script>
 </body>
