@@ -3,82 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <title>Camera</title>
-  <style>
-    video { width: 100%; max-width: 600px; }
-    button { font-size: 1.2em; margin-top: 10px; }
-  </style>
 </head>
 <body>
   <h1>📷 Camera</h1>
   <video id="localVideo" autoplay playsinline muted></video>
-  <br>
-  <button id="switchBtn">🔄 Перемкнути камеру</button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     const room = 'webrtc-room';
     const video = document.getElementById('localVideo');
-    const switchBtn = document.getElementById('switchBtn');
-
-    let pc;
-    let currentFacing = 'environment'; // починаємо з задньої
-    let currentStream;
-
+    let peerConnection;
     const config = {
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     };
 
     socket.emit('join', room);
 
-    async function startCamera(facingMode) {
-      if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode },
-        audio: false
-      });
-
-      currentStream = stream;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false }).then(stream => {
       video.srcObject = stream;
 
-      if (!pc) {
-        pc = new RTCPeerConnection(config);
-        pc.onicecandidate = e => {
-          if (e.candidate) socket.emit('candidate', room, e.candidate);
-        }
-        const tracks = stream.getTracks();
-        tracks.forEach(track => pc.addTrack(track, stream));
+      peerConnection = new RTCPeerConnection(config);
 
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+
+      peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+          socket.emit('candidate', room, event.candidate);
+        }
+      };
+
+      peerConnection.createOffer().then(offer => {
+        peerConnection.setLocalDescription(offer);
         socket.emit('offer', room, offer);
-      } else {
-        const sender = pc.getSenders().find(s => s.track.kind === 'video');
-        if (sender) {
-          sender.replaceTrack(stream.getVideoTracks()[0]);
-        }
-      }
-    }
-
-    // Перемикання камери
-    switchBtn.addEventListener('click', () => {
-      currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
-      startCamera(currentFacing);
+      });
     });
 
     socket.on('answer', answer => {
-      pc.setRemoteDescription(answer);
+      peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
     });
 
     socket.on('candidate', candidate => {
-      pc.addIceCandidate(candidate);
+      peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     });
-
-    // Стартуємо одразу
-    startCamera(currentFacing);
   </script>
 </body>
 </html>
