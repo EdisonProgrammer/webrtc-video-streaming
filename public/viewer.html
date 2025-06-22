@@ -23,8 +23,10 @@
       });
 
       peer.ontrack = e => {
+          console.log('Track received');
         video.srcObject = e.streams[0];
       };
+
 
       peer.onicecandidate = e => {
         if (e.candidate) {

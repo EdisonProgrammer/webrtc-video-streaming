@@ -28,6 +28,7 @@
       peers[viewerId] = peer;
 
       localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+      console.log('Tracks added to peer for viewer', viewerId);
 
       peer.onicecandidate = e => {
         if (e.candidate) {
