@@ -19,20 +19,29 @@
       .catch(error => console.error('Error accessing media devices.', error));
 
     peer.onicecandidate = e => {
-      if (e.candidate) socket.emit('candidate', e.candidate);
+      if (e.candidate) {
+        console.log('Sending candidate', e.candidate);
+        socket.emit('candidate', e.candidate);
+      }
     };
 
-    peer.createOffer().then(offer => {
-      peer.setLocalDescription(offer);
-      socket.emit('offer', offer);
-    });
-
     socket.on('answer', answer => {
+      console.log('Answer received', answer);
       peer.setRemoteDescription(new RTCSessionDescription(answer));
     });
 
     socket.on('candidate', candidate => {
+      console.log('Candidate received', candidate);
       peer.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
+    peer.createOffer().then(offer => {
+      return peer.setLocalDescription(offer);
+    }).then(() => {
+      console.log('Sending offer', peer.localDescription);
+      socket.emit('offer', peer.localDescription);
+    }).catch(err => {
+      console.error('Error creating offer:', err);
     });
   </script>
 </body>
